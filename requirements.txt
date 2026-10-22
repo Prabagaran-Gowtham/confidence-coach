@@ -1,0 +1,11 @@
+streamlit>=1.50
+numpy
+pandas
+scipy
+scikit-learn
+joblib
+librosa
+matplotlib
+shap
+gTTS
+soundfile
