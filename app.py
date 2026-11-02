@@ -63,6 +63,9 @@ if go:
             ss.history.append({"Attempt": len(ss.history) + 1, "Time": datetime.datetime.now().strftime("%H:%M:%S"),
                                "Score": r["confidence_score"], "Level": r["level"],
                                **{k: round(v, 1) for k, v in out["fs"].items()}})
+        except core.NoSpeechError as e:
+            ss.pop("result", None)
+            st.warning(str(e))
         except Exception as e:
             st.error(f"Could not analyse this recording: {e}")
 
