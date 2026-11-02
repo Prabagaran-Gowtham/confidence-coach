@@ -17,6 +17,13 @@ MAX_SECONDS = 60
 FILTERS = ("highpass=f=60:p=2,lowpass=f=7600:p=2,afftdn=nr=12:nf=-45:tn=1:ad=0.5:gs=6,"
            "alimiter=limit=0.891251:level=0:latency=1")
 THRESH, LOW, HIGH = -0.15, 4, 7
+# Speech gate (training speech: rms while speaking >= ~0.05; silence / room noise / hum <= ~0.004)
+MIN_LEVEL_RMS = 0.02      # loud frames must reach this level (about -34 dBFS)
+MIN_VOICED_SECONDS = 2.0  # at least this much voiced (pitched) speech
+
+
+class NoSpeechError(Exception):
+    """Raised when the recording has no usable speech, so no score should be shown."""
 
 GROUPS = {
     "Pitch variation": ["f0_std_st", "f0_range_st"],
@@ -89,6 +96,25 @@ def clean_audio(src, dst):
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:
         raise RuntimeError(r.stderr.strip() or "Could not read this audio file.")
+
+
+def quick_level_check(path):
+    """Cheap check before the slow pitch tracking: is there any real sound level at all?"""
+    y, _ = librosa.load(path, sr=SR, mono=True)
+    if len(y) < SR * 2:
+        raise NoSpeechError("The recording is too short. Please speak for at least a few seconds.")
+    rms = librosa.feature.rms(y=y, frame_length=640, hop_length=HOP)[0]
+    if np.percentile(rms, 95) < MIN_LEVEL_RMS:
+        raise NoSpeechError("No speech detected. The recording is silent or too quiet. Check that your "
+                            "microphone is allowed and working, speak closer to it, and record again.")
+
+
+def check_speech(row, S):
+    """After feature extraction: confirm there is enough voiced speech to score."""
+    voiced_s = float(np.isfinite(S["f0"]).sum()) * HOP / SR
+    if row["rms_mean"] < MIN_LEVEL_RMS or voiced_s < MIN_VOICED_SECONDS:
+        raise NoSpeechError("Not enough speech was detected to estimate confidence. Please speak "
+                            "clearly for at least 10 seconds, with little background noise, and record again.")
 
 
 def extract_full(path):
@@ -191,7 +217,9 @@ def analyse(src_path, A):
     with tempfile.TemporaryDirectory() as d:
         clean = os.path.join(d, "clean.wav")
         clean_audio(src_path, clean)
+        quick_level_check(clean)
         row, S = extract_full(clean)
+    check_speech(row, S)
     res = predict(row, A)
     return {"res": res, "row": row, "S": S, "fs": feature_scores(row, A["ref"]), "voice": make_voice(spoken_text(res))}
 
