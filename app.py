@@ -1,4 +1,5 @@
 import datetime, os, tempfile
+import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -19,6 +20,7 @@ def show(fig):
 A = get_assets()
 ss = st.session_state
 ss.setdefault("history", [])
+ss.setdefault("rec_n", 0)   # changing this number gives the recorder and uploader fresh, empty widgets
 
 # ------------------------------------------------------------------ sidebar
 with st.sidebar:
@@ -36,13 +38,15 @@ st.write("Record up to 1 minute of English speech (or upload a file), press **An
 
 # ------------------------------------------------------------------ input
 c1, c2 = st.columns(2)
-rec = c1.audio_input("Record your speech (up to 1 minute)")
-up = c2.file_uploader("...or upload a recording", type=["wav", "mp3", "m4a", "ogg", "opus", "flac"])
+rec = c1.audio_input("Record your speech (up to 1 minute)", key=f"rec_{ss.rec_n}")
+up = c2.file_uploader("...or upload a recording", type=["wav", "mp3", "m4a", "ogg", "opus", "flac"], key=f"up_{ss.rec_n}")
 src = rec if rec is not None else up
 
-b1, b2 = st.columns(2)
+b1, b2, b3 = st.columns(3)
 go = b1.button("Analyse", type="primary", width="stretch")
-if b2.button("Clear history", width="stretch"):
+if b2.button("Discard & record again", width="stretch"):
+    ss.rec_n += 1; ss.pop("result", None); st.rerun()      # removes the recording and the old result, keeps history
+if b3.button("Clear history", width="stretch"):
     ss.history = []; ss.pop("result", None)
 
 if go:
@@ -81,6 +85,11 @@ t_sum, t_feat, t_det, t_fb, t_prog, t_info = st.tabs(
 
 with t_sum:
     st.subheader("Your speech profile")
+    share = 1 - row["silence_ratio"]; voiced_s = float(np.isfinite(S["f0"]).sum()) * core.HOP / core.SR
+    if share < 0.25 or voiced_s < 7:
+        st.warning(f"Only {share * 100:.0f}% of this recording is speech ({voiced_s:.0f} s of voiced speech). The model learned "
+                   "from recordings with more continuous speech, so this score may be unreliable. For a better estimate, "
+                   "speak for at least 20 seconds with fewer long pauses. Use **Discard & record again** to try again.")
     m1, m2 = st.columns(2)
     m1.metric("Confidence score", f"{res['confidence_score']} / 10")
     m2.metric("Level", res["level"])
